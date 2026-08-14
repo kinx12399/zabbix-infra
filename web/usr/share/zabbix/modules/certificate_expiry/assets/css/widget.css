@@ -1,0 +1,31 @@
+.certificate-expiry-days {
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.certificate-expiry-critical {
+    color: #cc0000;
+    font-weight: 700;
+}
+
+.certificate-expiry-high {
+    color: #e97600;
+    font-weight: 700;
+}
+
+.certificate-expiry-warning {
+    color: #c79500;
+    font-weight: 700;
+}
+
+.certificate-expiry-ok {
+    white-space: nowrap;
+}
+
+.certificate-expiry-certificate {
+    min-width: 220px;
+}
+
+.certificate-expiry-host {
+    min-width: 180px;
+}

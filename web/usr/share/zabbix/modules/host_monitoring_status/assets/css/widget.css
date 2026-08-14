@@ -1,0 +1,221 @@
+.host-monitoring-status {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+
+/* =========================================================
+ * Summary
+ * =========================================================
+ */
+
+.hms-summary {
+    display: flex;
+    align-items: stretch;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    margin-bottom: 12px;
+}
+
+
+.hms-card {
+    flex: 1;
+    min-width: 0;
+    text-align: center;
+    padding: 8px 4px 7px;
+    box-sizing: border-box;
+
+    background: #f4f5f6;
+
+    border-radius: 3px;
+    border-top: 3px solid #9aa0a6;
+}
+
+
+.hms-value {
+    font-size: 24px;
+    line-height: 28px;
+    font-weight: 700;
+}
+
+
+.hms-label {
+    margin-top: 2px;
+
+    font-size: 10px;
+    line-height: 13px;
+    font-weight: 600;
+
+    color: #6b7280;
+}
+
+
+/* =========================================================
+ * Summary colors
+ * =========================================================
+ */
+
+.hms-total {
+    border-top-color: #768d99;
+}
+
+.hms-healthy {
+    border-top-color: #4caf50;
+}
+
+.hms-icmp {
+    border-top-color: #f2c037;
+}
+
+.hms-agent {
+    border-top-color: #ef8d22;
+}
+
+.hms-down {
+    border-top-color: #e00000;
+}
+
+
+/* =========================================================
+ * Problem Hosts header
+ * =========================================================
+ */
+
+.hms-problem-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+
+    /*
+     * 왼쪽 끝에 붙지 않도록 여백 추가
+     */
+    padding: 0 12px;
+
+    margin: 2px 0 7px;
+
+    box-sizing: border-box;
+}
+
+
+.hms-problem-title {
+    font-size: 12px;
+    font-weight: 700;
+}
+
+
+.hms-problem-count {
+    display: inline-block;
+
+    min-width: 18px;
+    padding: 1px 6px;
+
+    text-align: center;
+
+    font-size: 10px;
+    font-weight: 600;
+
+    background: #e8eaed;
+
+    border-radius: 10px;
+
+    box-sizing: border-box;
+}
+
+
+/* =========================================================
+ * Problem Hosts table
+ * =========================================================
+ */
+
+.hms-problem-table {
+    width: 100%;
+}
+
+
+/*
+ * 테이블 헤더/내용도 Problem Hosts 제목과
+ * 좌우 시작 위치를 어느 정도 맞춤
+ */
+
+.hms-problem-table th:first-child,
+.hms-problem-table td:first-child {
+    padding-left: 12px;
+}
+
+
+.hms-problem-table th:last-child,
+.hms-problem-table td:last-child {
+    padding-right: 12px;
+}
+
+
+.hms-host {
+    font-weight: 500;
+}
+
+
+/* =========================================================
+ * Status badge
+ * =========================================================
+ */
+
+.hms-status {
+    display: inline-block;
+
+    padding: 2px 7px;
+
+    border-radius: 3px;
+
+    white-space: nowrap;
+
+    font-size: 11px;
+    font-weight: 600;
+}
+
+
+/* ICMP 장애 */
+
+.hms-status-icmp {
+    color: #8c6900;
+    background: #fff3c4;
+}
+
+
+/* Agent 장애 */
+
+.hms-status-agent {
+    color: #b55400;
+    background: #ffe0bd;
+}
+
+
+/* ICMP + Agent 장애 */
+
+.hms-status-down {
+    color: #c00000;
+    background: #ffd0d0;
+}
+
+
+/* =========================================================
+ * 모든 호스트 정상
+ * =========================================================
+ */
+
+.hms-problem-empty {
+    margin-top: 8px;
+    padding: 14px 12px;
+
+    text-align: center;
+
+    border-top: 1px solid #e5e7eb;
+}
+
+
+.hms-all-healthy {
+    font-size: 12px;
+    font-weight: 600;
+
+    color: #2ca866;
+}

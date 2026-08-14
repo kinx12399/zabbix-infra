@@ -1,0 +1,397 @@
+services:
+
+  # ==========================================================
+  # ETCD 1
+  # ==========================================================
+  etcd1:
+    image: quay.io/coreos/etcd:v3.5.21
+    container_name: etcd1
+    restart: unless-stopped
+
+    environment:
+      ETCD_NAME: etcd1
+
+      ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
+      ETCD_ADVERTISE_CLIENT_URLS: http://${VM1_IP}:2379
+
+      ETCD_LISTEN_PEER_URLS: http://0.0.0.0:2380
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: http://${VM1_IP}:2380
+
+      ETCD_INITIAL_CLUSTER: "etcd1=http://${VM1_IP}:2380,etcd2=http://${VM2_IP}:2380,etcd3=http://${VM1_IP}:2382"
+      ETCD_INITIAL_CLUSTER_STATE: new
+      ETCD_INITIAL_CLUSTER_TOKEN: zabbix-etcd-cluster
+
+    ports:
+      - "2379:2379"
+      - "2380:2380"
+
+    volumes:
+      - etcd1-data:/etcd-data
+
+    command:
+      - /usr/local/bin/etcd
+      - --data-dir=/etcd-data
+
+
+  # ==========================================================
+  # ETCD 3
+  #
+  # VM1에 ETCD가 2개 있으므로 Host Port 분리
+  #
+  # client = 2381
+  # peer   = 2382
+  # ==========================================================
+  etcd3:
+    image: quay.io/coreos/etcd:v3.5.21
+    container_name: etcd3
+    restart: unless-stopped
+
+    environment:
+      ETCD_NAME: etcd3
+
+      ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
+      ETCD_ADVERTISE_CLIENT_URLS: http://${VM1_IP}:2381
+
+      ETCD_LISTEN_PEER_URLS: http://0.0.0.0:2380
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: http://${VM1_IP}:2382
+
+      ETCD_INITIAL_CLUSTER: "etcd1=http://${VM1_IP}:2380,etcd2=http://${VM2_IP}:2380,etcd3=http://${VM1_IP}:2382"
+      ETCD_INITIAL_CLUSTER_STATE: new
+      ETCD_INITIAL_CLUSTER_TOKEN: zabbix-etcd-cluster
+
+    ports:
+      - "2381:2379"
+      - "2382:2380"
+
+    volumes:
+      - etcd3-data:/etcd-data
+
+    command:
+      - /usr/local/bin/etcd
+      - --data-dir=/etcd-data
+
+
+  # ==========================================================
+  # PostgreSQL 16.14 + TimescaleDB 2.28.3 + Patroni 4.1.3
+  # DB NODE 1
+  # ==========================================================
+  patroni-db1:
+    build:
+      context: ./database
+      dockerfile: Dockerfile
+
+    image: custom-zabbix-db-ha:pg16.14-ts2.28.3
+    container_name: patroni-db1
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_PASSWORD: ${PATRONI_SUPERUSER_PASSWORD}
+
+      PATRONI_SCOPE: zabbix-ha
+      PATRONI_NAMESPACE: /service
+      PATRONI_NAME: db1
+
+      PATRONI_RESTAPI_LISTEN: 0.0.0.0:8008
+      PATRONI_RESTAPI_CONNECT_ADDRESS: ${VM1_IP}:8008
+
+      PATRONI_POSTGRESQL_LISTEN: 0.0.0.0:5432
+      PATRONI_POSTGRESQL_CONNECT_ADDRESS: ${VM1_IP}:8008
+
+      PATRONI_POSTGRESQL_DATA_DIR: /home/postgres/pgdata/data
+      PATRONI_POSTGRESQL_BIN_DIR: /usr/lib/postgresql/16/bin
+      PATRONI_POSTGRESQL_PGPASS: /home/postgres/.pgpass
+
+      PATRONI_ETCD3_HOSTS: "${VM1_IP}:2379,${VM2_IP}:2379,${VM1_IP}:2381"
+
+      PATRONI_SUPERUSER_USERNAME: postgres
+      PATRONI_SUPERUSER_PASSWORD: ${PATRONI_SUPERUSER_PASSWORD}
+
+      PATRONI_REPLICATION_USERNAME: replicator
+      PATRONI_REPLICATION_PASSWORD: ${PATRONI_REPLICATION_PASSWORD}
+
+    ports:
+      - "5433:5432"
+
+    volumes:
+      - postgres1-data:/home/postgres/pgdata
+
+    entrypoint:
+      - patroni
+
+    command:
+      - /etc/patroni/patroni.yml
+
+    depends_on:
+      - etcd1
+      - etcd3
+
+
+  # ==========================================================
+  # HAProxy 1
+  #
+  # :5432 -> 현재 Patroni Primary
+  # ==========================================================
+  haproxy:
+    image: haproxy:2.8
+    container_name: haproxy1
+    restart: unless-stopped
+
+    ports:
+      - "5432:5432"
+      - "8008:8008"
+
+    command:
+      - sh
+      - -c
+      - |
+        cat >/tmp/haproxy.cfg <<EOF
+        global
+            maxconn 4096
+
+        defaults
+            mode tcp
+            timeout connect 5s
+            timeout client 1h
+            timeout server 1h
+
+        frontend postgres
+            bind *:5432
+            default_backend patroni_primary
+
+        frontend node_mux
+            bind *:8008
+            tcp-request inspect-delay 5s
+            acl patroni_http payload(0,1) -m bin 44 47 48 4f 50
+            tcp-request content accept if patroni_http
+            use_backend local_patroni_api if patroni_http
+            default_backend local_postgres
+
+        backend local_patroni_api
+            server local_patroni patroni-db1:8008
+
+        backend local_postgres
+            server local_postgres patroni-db1:5432
+
+        backend patroni_primary
+            option httpchk GET /primary
+            http-check expect status 200
+
+            server db1 ${VM1_IP}:8008 check port 8008
+            server db2 ${VM2_IP}:8008 check port 8008
+        EOF
+
+        exec haproxy -f /tmp/haproxy.cfg
+
+    depends_on:
+      - patroni-db1
+
+
+  # ==========================================================
+  # Prepare PostgreSQL for Zabbix
+  #
+  # 1. zabbix role 생성
+  # 2. zabbix DB 생성
+  # 3. CREATE EXTENSION timescaledb
+  #
+  # 최초 구성 후 정상 종료하는 one-shot container
+  # ==========================================================
+  zabbix-db-prepare:
+    build:
+      context: ./database
+      dockerfile: Dockerfile
+
+    image: custom-zabbix-db-ha:pg16.14-ts2.28.3
+    container_name: zabbix-db-prepare
+    restart: "no"
+
+    environment:
+      DB_HOST: haproxy
+      DB_PORT: 5432
+
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${ZABBIX_DB_PASSWORD}
+
+      POSTGRES_ADMIN_USER: postgres
+      POSTGRES_ADMIN_PASSWORD: ${PATRONI_SUPERUSER_PASSWORD}
+
+    entrypoint:
+      - /bin/bash
+      - /opt/zabbix-init/prepare-zabbix-db.sh
+
+    depends_on:
+      - haproxy
+
+
+  # ==========================================================
+  # Zabbix Server DB INIT
+  #
+  # 공식 Zabbix container DB initialization
+  #
+  # - Zabbix Schema
+  # - Initial data
+  # - TimescaleDB schema / hypertables
+  #
+  # 완료 후 정상 종료
+  # ==========================================================
+  zabbix-server-db-init:
+    image: zabbix/zabbix-server-pgsql:ubuntu-7.0.29
+    container_name: zabbix-server-db-init
+    restart: "no"
+
+    environment:
+      DB_SERVER_HOST: haproxy
+      DB_SERVER_PORT: 5432
+
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${ZABBIX_DB_PASSWORD}
+
+      ENABLE_TIMESCALEDB: "true"
+
+    command:
+      - init_db_only
+
+    depends_on:
+      zabbix-db-prepare:
+        condition: service_completed_successfully
+
+
+  # ==========================================================
+  # Restore version-controlled Zabbix configuration snapshot
+  #
+  # If database/seed/zabbix-config.dump does not exist, this
+  # step records completion and keeps the default configuration.
+  # ==========================================================
+  zabbix-config-restore:
+    build:
+      context: ./database
+      dockerfile: Dockerfile
+
+    image: custom-zabbix-db-ha:pg16.14-ts2.28.3
+    container_name: zabbix-config-restore
+    restart: "no"
+
+    environment:
+      DB_HOST: haproxy
+      DB_PORT: 5432
+
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_ADMIN_USER: postgres
+      POSTGRES_ADMIN_PASSWORD: ${PATRONI_SUPERUSER_PASSWORD}
+
+      CONFIG_SEED_FILE: /opt/zabbix-seed/zabbix-config.dump
+
+    volumes:
+      - ./database/seed:/opt/zabbix-seed:ro
+
+    entrypoint:
+      - /bin/bash
+      - /opt/zabbix-init/restore-zabbix-config.sh
+
+    depends_on:
+      zabbix-server-db-init:
+        condition: service_completed_successfully
+
+
+  # ==========================================================
+  # Zabbix Server 1
+  # ==========================================================
+  zabbix-server1:
+    image: zabbix/zabbix-server-pgsql:ubuntu-7.0.29
+    container_name: zabbix-server1
+    restart: unless-stopped
+
+    environment:
+      DB_SERVER_HOST: haproxy
+      DB_SERVER_PORT: 5432
+
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${ZABBIX_DB_PASSWORD}
+
+      ENABLE_TIMESCALEDB: "true"
+
+      ZBX_HANODENAME: zabbix-server1
+      ZBX_NODEADDRESS: ${VM1_IP}:10051
+
+      ZBX_CACHESIZE: 256M
+      ZBX_HISTORYCACHESIZE: 128M
+
+    ports:
+      - "10051:10051"
+
+    depends_on:
+      zabbix-config-restore:
+        condition: service_completed_successfully
+
+
+  # ==========================================================
+  # Zabbix Web 1
+  # ==========================================================
+  zabbix-web1:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+
+    image: custom-zabbix-web:7.0.29
+    container_name: zabbix-web1
+    restart: unless-stopped
+
+    environment:
+      DB_SERVER_HOST: haproxy
+      DB_SERVER_PORT: 5432
+
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${ZABBIX_DB_PASSWORD}
+
+      PHP_TZ: ${PHP_TZ}
+
+      # Keep the frontend server address undefined so native Zabbix HA
+      # discovers the active node from the ha_node table.
+      ZBX_SERVER_HOST: ""
+      ZBX_SERVER_PORT: ""
+
+    ports:
+      - "80:8080"
+
+    depends_on:
+      zabbix-config-restore:
+        condition: service_completed_successfully
+      zabbix-server1:
+        condition: service_started
+
+
+  # ==========================================================
+  # Zabbix Proxy 1
+  # ==========================================================
+  zabbix-proxy1:
+    build:
+      context: ./proxy
+      dockerfile: Dockerfile
+
+    image: custom-zabbix-proxy:7.0.29
+    container_name: zabbix-proxy1
+    restart: unless-stopped
+
+    environment:
+      ZBX_HOSTNAME: zabbix-proxy1
+      ZBX_SERVER_HOST: "${VM1_IP};${VM2_IP}"
+      ZBX_SERVER_PORT: 10051
+
+    ports:
+      - "10061:10051"
+
+    volumes:
+      - proxy1-data:/var/lib/zabbix
+
+      - ./proxy/usr/lib/zabbix/externalscripts:/usr/lib/zabbix/externalscripts:ro
+
+
+volumes:
+  etcd1-data:
+  etcd3-data:
+  postgres1-data:
+  proxy1-data:

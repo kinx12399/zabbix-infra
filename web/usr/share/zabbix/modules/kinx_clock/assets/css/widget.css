@@ -1,0 +1,663 @@
+/* =========================================================
+ * KINX CLOCK
+ * NOC / Control Room Design
+ * =========================================================
+ */
+
+.kinx-clock {
+
+    position: relative;
+
+    width: 100%;
+    height: 100%;
+
+    min-height: 250px;
+
+    box-sizing: border-box;
+
+    overflow: hidden;
+
+    display: flex;
+    flex-direction: column;
+
+    align-items: center;
+    justify-content: center;
+
+    padding:
+        44px
+        22px
+        50px;
+
+    color: #f5f7f8;
+
+
+    /*
+     * Dark NOC background
+     * + subtle grid
+     */
+    background:
+
+        radial-gradient(
+            circle at 50% 42%,
+            rgba(24, 122, 88, 0.15),
+            transparent 48%
+        ),
+
+        linear-gradient(
+            rgba(36, 105, 92, 0.09) 1px,
+            transparent 1px
+        ),
+
+        linear-gradient(
+            90deg,
+            rgba(36, 105, 92, 0.09) 1px,
+            transparent 1px
+        ),
+
+        linear-gradient(
+            145deg,
+            #071518 0%,
+            #08191c 50%,
+            #051114 100%
+        );
+
+
+    background-size:
+        auto,
+        24px 24px,
+        24px 24px,
+        auto;
+
+
+    border:
+        1px solid rgba(35, 202, 122, .42);
+
+
+    box-shadow:
+
+        inset
+        0
+        0
+        0
+        1px
+        rgba(255,255,255,.025),
+
+        inset
+        0
+        0
+        42px
+        rgba(0,0,0,.44),
+
+        0
+        0
+        8px
+        rgba(28,190,111,.05);
+
+}
+
+
+/* =========================================================
+ * Internal HUD frame
+ * =========================================================
+ */
+
+.kinx-clock::before {
+
+    content: '';
+
+    position: absolute;
+
+    top: 9px;
+    right: 9px;
+    bottom: 9px;
+    left: 9px;
+
+    pointer-events: none;
+
+    border:
+        1px solid rgba(39, 207, 126, .38);
+
+
+    clip-path:
+        polygon(
+
+            0 16px,
+            16px 0,
+
+            38% 0,
+            42% 7px,
+
+            82% 7px,
+            86% 0,
+
+            calc(100% - 16px) 0,
+            100% 16px,
+
+            100% calc(100% - 16px),
+            calc(100% - 16px) 100%,
+
+            16px 100%,
+            0 calc(100% - 16px)
+
+        );
+
+
+    box-shadow:
+        inset
+        0
+        0
+        13px
+        rgba(31, 204, 119, .055);
+
+}
+
+
+/*
+ * Center horizontal HUD line
+ */
+
+.kinx-clock::after {
+
+    content: '';
+
+    position: absolute;
+
+    top: 50%;
+
+    left: 20px;
+    right: 20px;
+
+    height: 1px;
+
+    pointer-events: none;
+
+    background:
+        linear-gradient(
+            90deg,
+            transparent,
+            rgba(37, 205, 121, .12),
+            transparent
+        );
+
+}
+
+
+/* =========================================================
+ * Header
+ * =========================================================
+ */
+
+.kinx-clock-header {
+
+    position: absolute;
+
+    top: 17px;
+    left: 27px;
+    right: 27px;
+
+    z-index: 3;
+
+    display: flex;
+
+    align-items: center;
+
+    gap: 6px;
+
+    white-space: nowrap;
+
+}
+
+
+.kinx-clock-header-brand {
+
+    font-size: 11px;
+
+    font-weight: 800;
+
+    letter-spacing: .035em;
+
+    color: #ffffff;
+
+}
+
+
+.kinx-clock-header-title {
+
+    font-size: 11px;
+
+    font-weight: 800;
+
+    letter-spacing: .01em;
+
+    color: #ffffff;
+
+}
+
+
+/* =========================================================
+ * Center KINX Brand
+ * =========================================================
+ */
+
+.kinx-clock-brand-row {
+
+    position: relative;
+
+    z-index: 2;
+
+    margin-bottom: 22px;
+
+}
+
+
+.kinx-clock-brand {
+
+    font-size: 14px;
+
+    line-height: 1;
+
+    font-weight: 900;
+
+    letter-spacing: .055em;
+
+    color: #22c871;
+
+
+    text-shadow:
+        0 0 9px rgba(34,200,113,.25);
+
+}
+
+
+/* =========================================================
+ * Date
+ * =========================================================
+ */
+
+.kinx-clock-date-row {
+
+    position: relative;
+
+    z-index: 2;
+
+    margin-bottom: 16px;
+
+}
+
+
+.kinx-clock-date {
+
+    font-size:
+        clamp(
+            15px,
+            1.3vw,
+            20px
+        );
+
+    line-height: 1;
+
+    font-weight: 600;
+
+    letter-spacing: .035em;
+
+    color: #e5e9ea;
+
+    font-variant-numeric:
+        tabular-nums;
+
+}
+
+
+/* =========================================================
+ * Main Time
+ * =========================================================
+ */
+
+.kinx-clock-time-row {
+
+    position: relative;
+
+    z-index: 2;
+
+    display: flex;
+
+    align-items: flex-end;
+    justify-content: center;
+
+    white-space: nowrap;
+
+    font-variant-numeric:
+        tabular-nums;
+
+}
+
+
+.kinx-clock-time {
+
+    font-family:
+        Arial,
+        Roboto,
+        sans-serif;
+
+    font-size:
+        clamp(
+            58px,
+            5.4vw,
+            86px
+        );
+
+    line-height: .94;
+
+    font-weight: 500;
+
+    letter-spacing: -.055em;
+
+    color: #f5f7f8;
+
+    text-shadow:
+        0 0 4px rgba(255,255,255,.10);
+
+}
+
+
+.kinx-clock-seconds {
+
+    min-width: 30px;
+
+    margin-left: 12px;
+    margin-bottom: 7px;
+
+    font-size:
+        clamp(
+            18px,
+            1.85vw,
+            29px
+        );
+
+    line-height: 1;
+
+    font-weight: 500;
+
+    color: #ffffff;
+
+    font-variant-numeric:
+        tabular-nums;
+
+}
+
+
+/* =========================================================
+ * KST
+ * =========================================================
+ */
+
+.kinx-clock-zone-row {
+
+    position: relative;
+
+    z-index: 2;
+
+    margin-top: 22px;
+
+}
+
+
+.kinx-clock-zone {
+
+    display: inline-block;
+
+    padding:
+        3px
+        9px;
+
+    border:
+        1px solid #20d075;
+
+    border-radius:
+        4px;
+
+    background:
+        rgba(3, 45, 29, .62);
+
+    color:
+        #27d77a;
+
+    font-size:
+        11px;
+
+    line-height:
+        15px;
+
+    font-weight:
+        800;
+
+    letter-spacing:
+        .08em;
+
+
+    box-shadow:
+
+        inset
+        0
+        0
+        6px
+        rgba(34,210,116,.12),
+
+        0
+        0
+        6px
+        rgba(34,210,116,.10);
+
+}
+
+
+/* =========================================================
+ * Footer
+ * =========================================================
+ */
+
+.kinx-clock-footer {
+
+    position: absolute;
+
+    left: 21px;
+    right: 21px;
+
+    bottom: 17px;
+
+    z-index: 3;
+
+    display: flex;
+
+    align-items: center;
+    justify-content: space-between;
+
+}
+
+
+.kinx-clock-footer-left {
+
+    display: flex;
+
+    align-items: center;
+
+    gap: 7px;
+
+}
+
+
+.kinx-clock-status-dot {
+
+    display: block;
+
+    width: 8px;
+    height: 8px;
+
+    border-radius:
+        50%;
+
+    background:
+        #2ed97b;
+
+    box-shadow:
+        0 0 8px rgba(46,217,123,.55);
+
+    animation:
+        kinx-clock-pulse
+        2s
+        ease-in-out
+        infinite;
+
+}
+
+
+.kinx-clock-footer-text {
+
+    font-size:
+        10px;
+
+    line-height:
+        12px;
+
+    font-weight:
+        700;
+
+    letter-spacing:
+        .02em;
+
+    color:
+        #edf3f4;
+
+}
+
+
+/* =========================================================
+ * Signal Indicator
+ * =========================================================
+ */
+
+.kinx-clock-signal {
+
+    display: flex;
+
+    align-items: center;
+
+    gap: 2px;
+
+}
+
+
+.kinx-clock-signal span {
+
+    display: block;
+
+    width: 3px;
+    height: 3px;
+
+    border-radius:
+        50%;
+
+    background:
+        #1ec76e;
+
+    box-shadow:
+        0 0 3px rgba(30,199,110,.32);
+
+}
+
+
+.kinx-clock-signal span:nth-child(1) {
+    opacity: .22;
+}
+
+.kinx-clock-signal span:nth-child(2) {
+    opacity: .32;
+}
+
+.kinx-clock-signal span:nth-child(3) {
+    opacity: .42;
+}
+
+.kinx-clock-signal span:nth-child(4) {
+    opacity: .54;
+}
+
+.kinx-clock-signal span:nth-child(5) {
+    opacity: .66;
+}
+
+.kinx-clock-signal span:nth-child(6) {
+    opacity: .78;
+}
+
+.kinx-clock-signal span:nth-child(7) {
+    opacity: .89;
+}
+
+.kinx-clock-signal span:nth-child(8) {
+    opacity: 1;
+}
+
+
+/* =========================================================
+ * Pulse Animation
+ * =========================================================
+ */
+
+@keyframes kinx-clock-pulse {
+
+    0%,
+    100% {
+
+        opacity: 1;
+
+        transform:
+            scale(1);
+
+    }
+
+
+    50% {
+
+        opacity: .58;
+
+        transform:
+            scale(.82);
+
+    }
+
+}
+
+
+/* =========================================================
+ * Smaller Widget
+ * =========================================================
+ */
+
+@media (max-width: 1400px) {
+
+    .kinx-clock-time {
+
+        font-size:
+            clamp(
+                50px,
+                5vw,
+                74px
+            );
+
+    }
+
+}
+
+
+/*
+ * Reduce Motion
+ */
+
+@media (prefers-reduced-motion: reduce) {
+
+    .kinx-clock-status-dot {
+        animation: none;
+    }
+
+}

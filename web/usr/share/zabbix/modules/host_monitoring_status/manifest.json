@@ -1,0 +1,19 @@
+{
+    "manifest_version": 2.0,
+    "id": "host_monitoring_status",
+    "type": "widget",
+    "name": "Host Monitoring Status",
+    "namespace": "HostMonitoringStatus",
+    "version": "1.1",
+    "author": "KINX",
+    "actions": {
+        "widget.host_monitoring_status.view": {
+            "class": "WidgetView"
+        }
+    },
+    "assets": {
+        "css": [
+            "widget.css"
+        ]
+    }
+}

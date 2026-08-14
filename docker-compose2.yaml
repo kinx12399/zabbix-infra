@@ -1,0 +1,350 @@
+services:
+
+  # ==========================================================
+  # ETCD 2
+  # ==========================================================
+  etcd2:
+    image: quay.io/coreos/etcd:v3.5.21
+    container_name: etcd2
+    restart: unless-stopped
+
+    environment:
+      ETCD_NAME: etcd2
+
+      ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
+      ETCD_ADVERTISE_CLIENT_URLS: http://${VM2_IP}:2379
+
+      ETCD_LISTEN_PEER_URLS: http://0.0.0.0:2380
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: http://${VM2_IP}:2380
+
+      ETCD_INITIAL_CLUSTER: "etcd1=http://${VM1_IP}:2380,etcd2=http://${VM2_IP}:2380,etcd3=http://${VM1_IP}:2382"
+      ETCD_INITIAL_CLUSTER_STATE: new
+      ETCD_INITIAL_CLUSTER_TOKEN: zabbix-etcd-cluster
+
+    ports:
+      - "2379:2379"
+      - "2380:2380"
+
+    volumes:
+      - etcd2-data:/etcd-data
+
+    command:
+      - /usr/local/bin/etcd
+      - --data-dir=/etcd-data
+
+
+  # ==========================================================
+  # PostgreSQL 16.14 + TimescaleDB 2.28.3 + Patroni 4.1.3
+  # DB NODE 2
+  # ==========================================================
+  patroni-db2:
+    build:
+      context: ./database
+      dockerfile: Dockerfile
+
+    image: custom-zabbix-db-ha:pg16.14-ts2.28.3
+    container_name: patroni-db2
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_PASSWORD: ${PATRONI_SUPERUSER_PASSWORD}
+
+      PATRONI_SCOPE: zabbix-ha
+      PATRONI_NAMESPACE: /service
+      PATRONI_NAME: db2
+
+      PATRONI_RESTAPI_LISTEN: 0.0.0.0:8008
+      PATRONI_RESTAPI_CONNECT_ADDRESS: ${VM2_IP}:8008
+
+      PATRONI_POSTGRESQL_LISTEN: 0.0.0.0:5432
+      PATRONI_POSTGRESQL_CONNECT_ADDRESS: ${VM2_IP}:8008
+
+      PATRONI_POSTGRESQL_DATA_DIR: /home/postgres/pgdata/data
+      PATRONI_POSTGRESQL_BIN_DIR: /usr/lib/postgresql/16/bin
+      PATRONI_POSTGRESQL_PGPASS: /home/postgres/.pgpass
+
+      PATRONI_ETCD3_HOSTS: "${VM1_IP}:2379,${VM2_IP}:2379,${VM1_IP}:2381"
+
+      PATRONI_SUPERUSER_USERNAME: postgres
+      PATRONI_SUPERUSER_PASSWORD: ${PATRONI_SUPERUSER_PASSWORD}
+
+      PATRONI_REPLICATION_USERNAME: replicator
+      PATRONI_REPLICATION_PASSWORD: ${PATRONI_REPLICATION_PASSWORD}
+
+    ports:
+      - "5433:5432"
+
+    volumes:
+      - postgres2-data:/home/postgres/pgdata
+
+    entrypoint:
+      - patroni
+
+    command:
+      - /etc/patroni/patroni.yml
+
+    depends_on:
+      - etcd2
+
+
+  # ==========================================================
+  # HAProxy 2
+  #
+  # :5432 -> 현재 Patroni Primary
+  # ==========================================================
+  haproxy:
+    image: haproxy:2.8
+    container_name: haproxy2
+    restart: unless-stopped
+
+    ports:
+      - "5432:5432"
+      - "8008:8008"
+
+    command:
+      - sh
+      - -c
+      - |
+        cat >/tmp/haproxy.cfg <<EOF
+        global
+            maxconn 4096
+
+        defaults
+            mode tcp
+            timeout connect 5s
+            timeout client 1h
+            timeout server 1h
+
+        frontend postgres
+            bind *:5432
+            default_backend patroni_primary
+
+        frontend node_mux
+            bind *:8008
+            tcp-request inspect-delay 5s
+            acl patroni_http payload(0,1) -m bin 44 47 48 4f 50
+            tcp-request content accept if patroni_http
+            use_backend local_patroni_api if patroni_http
+            default_backend local_postgres
+
+        backend local_patroni_api
+            server local_patroni patroni-db2:8008
+
+        backend local_postgres
+            server local_postgres patroni-db2:5432
+
+        backend patroni_primary
+            option httpchk GET /primary
+            http-check expect status 200
+
+            server db1 ${VM1_IP}:8008 check port 8008
+            server db2 ${VM2_IP}:8008 check port 8008
+        EOF
+
+        exec haproxy -f /tmp/haproxy.cfg
+
+    depends_on:
+      - patroni-db2
+
+
+  # ==========================================================
+  # Wait for Zabbix DB initialization
+  #
+  # VM1의 zabbix-server-db-init 완료 대기
+  #
+  # 확인 항목:
+  # - dbversion 존재
+  # - history hypertable 존재
+  # ==========================================================
+  zabbix-db-ready:
+    build:
+      context: ./database
+      dockerfile: Dockerfile
+
+    image: custom-zabbix-db-ha:pg16.14-ts2.28.3
+    container_name: zabbix-db-ready
+    restart: "no"
+
+    environment:
+      DB_HOST: haproxy
+      DB_PORT: 5432
+
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+
+      PGPASSWORD: ${ZABBIX_DB_PASSWORD}
+
+    entrypoint:
+      - /bin/bash
+      - -ec
+
+    command:
+      - |
+        echo "======================================================"
+        echo " Waiting for Zabbix DB + TimescaleDB initialization"
+        echo "======================================================"
+
+        until pg_isready \
+          -h "$${DB_HOST}" \
+          -p "$${DB_PORT}" \
+          -U "$${POSTGRES_USER}" >/dev/null 2>&1
+        do
+          echo "PostgreSQL is not ready..."
+          sleep 3
+        done
+
+        echo "PostgreSQL is available."
+
+        while true
+        do
+          DBVERSION="$$(psql \
+            -h "$${DB_HOST}" \
+            -p "$${DB_PORT}" \
+            -U "$${POSTGRES_USER}" \
+            -d "$${POSTGRES_DB}" \
+            -tAc "SELECT to_regclass('public.dbversion') IS NOT NULL" \
+            2>/dev/null || true)"
+
+          HYPERTABLE="$$(psql \
+            -h "$${DB_HOST}" \
+            -p "$${DB_PORT}" \
+            -U "$${POSTGRES_USER}" \
+            -d "$${POSTGRES_DB}" \
+            -tAc "
+              SELECT 1
+              FROM timescaledb_information.hypertables
+              WHERE hypertable_name='history'
+              LIMIT 1;
+            " \
+            2>/dev/null || true)"
+
+          BOOTSTRAP="$$(psql \
+            -h "$${DB_HOST}" \
+            -p "$${DB_PORT}" \
+            -U "$${POSTGRES_USER}" \
+            -d "$${POSTGRES_DB}" \
+            -tAc "
+              SELECT 1
+              FROM public.infra_bootstrap
+              WHERE id = 1
+              LIMIT 1;
+            " \
+            2>/dev/null || true)"
+
+          if [ "$${DBVERSION}" = "t" ] \
+            && [ "$${HYPERTABLE}" = "1" ] \
+            && [ "$${BOOTSTRAP}" = "1" ]; then
+            break
+          fi
+
+          echo "Zabbix DB initialization is not complete yet..."
+          sleep 3
+        done
+
+        echo "======================================================"
+        echo " Zabbix DB is ready."
+        echo "======================================================"
+
+    depends_on:
+      - haproxy
+
+
+  # ==========================================================
+  # Zabbix Server 2
+  # ==========================================================
+  zabbix-server2:
+    image: zabbix/zabbix-server-pgsql:ubuntu-7.0.29
+    container_name: zabbix-server2
+    restart: unless-stopped
+
+    environment:
+      DB_SERVER_HOST: haproxy
+      DB_SERVER_PORT: 5432
+
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${ZABBIX_DB_PASSWORD}
+
+      ENABLE_TIMESCALEDB: "true"
+
+      ZBX_HANODENAME: zabbix-server2
+      ZBX_NODEADDRESS: ${VM2_IP}:10051
+
+      ZBX_CACHESIZE: 256M
+      ZBX_HISTORYCACHESIZE: 128M
+
+    ports:
+      - "10051:10051"
+
+    depends_on:
+      zabbix-db-ready:
+        condition: service_completed_successfully
+
+
+  # ==========================================================
+  # Zabbix Web 2
+  # ==========================================================
+  zabbix-web2:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+
+    image: custom-zabbix-web:7.0.29
+    container_name: zabbix-web2
+    restart: unless-stopped
+
+    environment:
+      DB_SERVER_HOST: haproxy
+      DB_SERVER_PORT: 5432
+
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${ZABBIX_DB_PASSWORD}
+
+      PHP_TZ: ${PHP_TZ}
+
+      # Keep the frontend server address undefined so native Zabbix HA
+      # discovers the active node from the ha_node table.
+      ZBX_SERVER_HOST: ""
+      ZBX_SERVER_PORT: ""
+
+    ports:
+      - "80:8080"
+
+    depends_on:
+      zabbix-db-ready:
+        condition: service_completed_successfully
+      zabbix-server2:
+        condition: service_started
+
+
+  # ==========================================================
+  # Zabbix Proxy 2
+  # ==========================================================
+  zabbix-proxy2:
+    build:
+      context: ./proxy
+      dockerfile: Dockerfile
+
+    image: custom-zabbix-proxy:7.0.29
+    container_name: zabbix-proxy2
+    restart: unless-stopped
+
+    environment:
+      ZBX_HOSTNAME: zabbix-proxy2
+      ZBX_SERVER_HOST: "${VM1_IP};${VM2_IP}"
+      ZBX_SERVER_PORT: 10051
+
+    ports:
+      - "10061:10051"
+
+    volumes:
+      - proxy2-data:/var/lib/zabbix
+
+      - ./proxy/usr/lib/zabbix/externalscripts:/usr/lib/zabbix/externalscripts:ro
+
+
+volumes:
+  etcd2-data:
+  postgres2-data:
+  proxy2-data:

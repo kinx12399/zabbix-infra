@@ -1,0 +1,19 @@
+{
+    "manifest_version": 2.0,
+    "id": "certificate_expiry",
+    "type": "widget",
+    "name": "Certificate Expiry",
+    "namespace": "CertificateExpiry",
+    "version": "1.1",
+    "author": "KINX",
+    "actions": {
+        "widget.certificate_expiry.view": {
+            "class": "WidgetView"
+        }
+    },
+    "assets": {
+        "css": [
+            "widget.css"
+        ]
+    }
+}
